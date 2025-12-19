@@ -1,0 +1,5 @@
+workers comm with the master via rpc.
+
+worker will ask the master for the task, read the tasks input
+
+master shld notice if worker hasnt completed the task in 10s, give task to another worker
