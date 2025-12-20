@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 )
 
 // Map functions return a slice of KeyValue.
@@ -13,6 +16,12 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type ByKey []KeyValue
+
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -26,23 +35,47 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
-
-	reply := Call()
+	reply, fileId := Call()
 	data, err := os.ReadFile(reply)
 	if err != nil {
 		fmt.Println("Error: ", err)
 		os.Exit(1)
 	}
 	intermediate_pairs := mapf(reply, string(data))
-	fmt.Printf("%v\n", intermediate_pairs)
+	// fmt.Printf("%v\n", intermediate_pairs)
+	fmt.Printf("%v\n", reply)
+	sort.Sort(ByKey(intermediate_pairs))
+
+	//fmt.Printf("%v\n", intermediate_pairs)
+	// I will save the intermediate files as mr-X-Y where X is the file Idx as defined by the master,
+	// Y is the hashed reducer number
+
+	currName := ""
+	var buffer strings.Builder
+
+	for _, pair := range intermediate_pairs {
+
+		Y := ihash(pair.Key)
+		name := "mr-" + strconv.Itoa(fileId) + "-" + strconv.Itoa(Y)
+
+		if currName == "" {
+			fmt.Fprintf(&buffer, "%v %v\n", pair.Key, pair.Value)
+			currName = name
+		} else if name != currName {
+			interFileName, _ := os.Create(name)
+			fmt.Fprint(interFileName, buffer.String())
+			interFileName.Close()
+			currName = name
+			buffer.Reset() //clear the buffer for the new k-v pairs with the new key
+			fmt.Fprintf(&buffer, "%v %v\n", pair.Key, pair.Value)
+		} else if name == currName {
+			fmt.Fprintf(&buffer, "%v %v\n", pair.Key, pair.Value)
+		}
+	}
 
 }
 
-func Call() string {
+func Call() (string, int) {
 	args := WorkerToMasterReq{ReqType: "task_need"}
 
 	reply := MasterToWorkerRes{}
@@ -50,28 +83,7 @@ func Call() string {
 	call("Master.SendFilename", &args, &reply)
 
 	fmt.Printf("file to process as sent by master: %s\n", reply.Res)
-	return reply.Res
-}
-
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
+	return reply.Res, reply.FileID
 }
 
 // send an RPC request to the master, wait for the response.

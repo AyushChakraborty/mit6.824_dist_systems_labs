@@ -1,29 +1,45 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
+// an array of bool, where each index represents the status of a file corresponding to that index
+type status struct {
+	processing []bool
+	processed  []bool
+}
+
 type Master struct {
-	// Your definitions here.
-
+	IdxToFile  map[int]string
+	TotalFiles int
+	StatusLock sync.Mutex
+	Status     status
 }
 
-// Your code here -- RPC handlers for the worker to call.
 func (m *Master) SendFilename(args *WorkerToMasterReq, reply *MasterToWorkerRes) error {
-	reply.Res = "pg-grimm.txt"
-	return nil
-}
 
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+	m.StatusLock.Lock()
+
+	for idx := range m.TotalFiles {
+		fmt.Printf("files seen in the loop: %v, %v, %v, %v\n", idx, m.IdxToFile[idx], m.Status.processed[idx], m.Status.processing[idx])
+		if m.Status.processed[idx] == false && m.Status.processing[idx] == false {
+			m.Status.processing[idx] = true
+			reply.Res = m.IdxToFile[idx]
+			reply.FileID = idx
+			break
+		}
+	}
+
+	m.StatusLock.Unlock()
+
+	//have to handle the case where the task is processed
 	return nil
 }
 
@@ -39,6 +55,7 @@ func (m *Master) server() {
 		log.Fatal("listen error:", e)
 	}
 	go http.Serve(l, nil)
+
 }
 
 // main/mrmaster.go calls Done() periodically to find out
@@ -57,7 +74,18 @@ func (m *Master) Done() bool {
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 
-	// Your code here.
+	m.TotalFiles = 0
+
+	m.IdxToFile = make(map[int]string)
+	for idx, file := range files {
+		m.IdxToFile[idx] = file
+		m.TotalFiles += 1
+	}
+
+	m.Status.processed = make([]bool, m.TotalFiles)
+	m.Status.processing = make([]bool, m.TotalFiles)
+
+	fmt.Printf("%v\n", m.IdxToFile)
 
 	m.server()
 	return &m
