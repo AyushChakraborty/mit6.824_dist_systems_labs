@@ -11,6 +11,22 @@ import (
 	"strconv"
 )
 
+type TaskRequest struct{}
+
+type TaskReply struct {
+	TaskType   string //can be "map" or "reduce" or "wait" or "exit"
+	TaskNumber int    //which map task or reduce task is being allotted to that worker
+	Filename   string
+	NReduce    int //needed for the map tasks, total number of reducers
+}
+
+type TaskDoneRequest struct {
+	TaskNumber int
+	TaskType   string
+}
+
+type TaskDoneReply struct {}
+
 type WorkerToMasterReq struct {
 	ReqType string
 }
