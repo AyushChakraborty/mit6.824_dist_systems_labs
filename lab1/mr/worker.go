@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -43,101 +42,108 @@ func Worker(mapf func(string, string) []KeyValue,
 		if reply.TaskType == "map" {
 			data, err := os.ReadFile(reply.Filename)
 			if err != nil {
-				//fmt.Println("Error: ", err)
-				os.Exit(1)
+				log.Fatal(err)
 			}
 
 			intermediate_pairs := mapf(reply.Filename, string(data))
-			// fmt.Printf("%v\n", intermediate_pairs)
-			//fmt.Printf("%v\n", reply)
-			sort.Sort(ByKey(intermediate_pairs))
 
-			//fmt.Printf("%v\n", intermediate_pairs)
 			// I will save the intermediate files as mr-X-Y where X is the file Idx as defined by the master,
 			// Y is the hashed reducer number
 
-			currName := ""
-			var buffer strings.Builder
+			//file per reducer
+			reducer_files := make(map[int]*os.File)
 
 			for _, pair := range intermediate_pairs {
-
 				Y := ihash(pair.Key) % reply.NReduce
 
-				name := "mr-" + strconv.Itoa(reply.TaskNumber) + "-" + strconv.Itoa(Y)
-
-				if currName == "" {
-					fmt.Fprintf(&buffer, "%v %v\n", pair.Key, pair.Value)
-					currName = name
-				} else if name != currName {
-					interFileName, err := os.Create(name)
-					for err != nil {
+				// get or create file for this bucket
+				if reducer_files[Y] == nil {
+					filename := fmt.Sprintf("mr-%d-%d", reply.TaskNumber, Y)
+					file, err := os.Create(filename)
+					if err != nil {
 						log.Fatal(err)
-						interFileName, err = os.Create(name) //repeatedly tries to create
-						//the intermediate file
 					}
-					defer interFileName.Close()
-
-					fmt.Fprint(interFileName, buffer.String())
-					currName = name
-					buffer.Reset() //clear the buffer for the new k-v pairs with the new key
-					fmt.Fprintf(&buffer, "%v %v\n", pair.Key, pair.Value)
-				} else if name == currName {
-					fmt.Fprintf(&buffer, "%v %v\n", pair.Key, pair.Value)
+					reducer_files[Y] = file
 				}
+				// write to the bucket file
+				fmt.Fprintf(reducer_files[Y], "%v %v\n", pair.Key, pair.Value)
+			}
+
+			for _, file := range reducer_files {
+				file.Close()
 			}
 			TaskDoneCall(reply.TaskNumber, reply.TaskType)
 
 		} else if reply.TaskType == "reduce" {
-			reducerNum := reply.TaskNumber //the reducer number allotted to this worker
+			reducerNum := reply.TaskNumber
 
-			//search for the intermediate files in the same dir of /lab1 which end with reducerNum.
-			// In an actual distributed case, with a central file system, like HDFS or GFS, the files need to
-			// be accessed from it, but for this lab, since all the workers and the master run as separate processes
-			// in the same system, this suffices
-
-			//collect all such files
-
-			pattern := "mr-*" + strconv.Itoa(reducerNum)
+			//find all the intermediate map results alloted to this reducer
+			pattern := fmt.Sprintf("mr-*-%d", reducerNum)
 			matches, err := filepath.Glob(pattern)
 			if err != nil {
 				log.Fatal(err)
-				continue //in the case where the reducer does not find any intermediate file
-				//associated with it, in which case it coninues and does so in a loop, until the master
-				//recognises it and reassigns the task to the same worker again, hopefully this time
-				//with the intermediate files actually available
+				continue
 			}
 
-			outputFilename := "mr-out-" + strconv.Itoa(reducerNum)
-			outputFile, err := os.Create(outputFilename)
-			if err != nil {
-				log.Fatal(err)
-				continue //again following the same philosophy as mentioned in the comment above
-			}
-			defer outputFile.Close()
+			//collecting all intermediate key value pairs from all intermediate files
+			intermediate := []KeyValue{}
 
-			for _, fileName := range matches {
-				file, err := os.Open(fileName)
+			for _, filename := range matches {
+				file, err := os.Open(filename)
 				if err != nil {
 					log.Fatal(err)
 					continue
 				}
-				defer file.Close()
 
-				var values []string
-				key := ""
 				scanner := bufio.NewScanner(file)
 				for scanner.Scan() {
-					line := strings.TrimRight(scanner.Text(), "\n")
-					split := strings.Split(line, " ")
-					if key == "" {
-						key = split[0]
+					line := scanner.Text()
+					parts := strings.SplitN(line, " ", 2)
+					if len(parts) == 2 {
+						intermediate = append(intermediate, KeyValue{
+							Key:   parts[0],
+							Value: parts[1],
+						})
 					}
-					values = append(values, split[1])
+				}
+				file.Close()
+			}
+
+			if len(intermediate) == 0 {
+				TaskDoneCall(reply.TaskNumber, reply.TaskType)
+				continue //dont clutter with empty files from unused reducers
+			}
+
+			sort.Sort(ByKey(intermediate))
+
+			outputFilename := fmt.Sprintf("mr-out-%d", reducerNum)
+			outputFile, err := os.Create(outputFilename)
+			if err != nil {
+				log.Fatal(err)
+				continue
+			}
+
+			//call reduce func for each unique key
+			i := 0
+			for i < len(intermediate) {
+				j := i + 1
+				for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+					j++
 				}
 
-				reducedVal := reducef(key, values)
-				fmt.Fprintf(outputFile, "%v %v\n", key, reducedVal)
+				//collect all values for this key
+				values := []string{}
+				for k := i; k < j; k++ {
+					values = append(values, intermediate[k].Value)
+				}
+
+				output := reducef(intermediate[i].Key, values)
+				fmt.Fprintf(outputFile, "%v %v\n", intermediate[i].Key, output)
+
+				i = j
 			}
+
+			outputFile.Close()
 			TaskDoneCall(reply.TaskNumber, reply.TaskType)
 
 		} else if reply.TaskType == "wait" {

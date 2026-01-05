@@ -26,3 +26,12 @@ In another window, start the worker
 ```
 go run mrworker.go wc.so
 ```
+
+## Results 
+![wc and indexer tests](res1.jpeg)
+
+![map parallelism tests](res2.jpeg)
+
+![reduce parallelism tests](res3.jpeg)
+
+![crash tests](res4.jpeg)

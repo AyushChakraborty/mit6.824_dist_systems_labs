@@ -101,6 +101,9 @@ func (m *Master) AssignTask(args *TaskRequest, reply *TaskReply) error {
 }
 
 func (m *Master) ReceiveStatus(args *TaskDoneRequest, reply *TaskDoneReply) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	if args.TaskType == "map" {
 		m.mapTasks[args.TaskNumber].Status = Done
 		if m.allMapTasksDone() {
