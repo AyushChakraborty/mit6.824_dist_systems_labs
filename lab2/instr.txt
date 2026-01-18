@@ -1,0 +1,36 @@
+#####instructions######
+
+add code to raft/raft.go
+
+service calls Make(peers,me,…) to create a Raft peer. The peers argument is an array of network identifiers of the Raft peers (including this one), for use with RPC. The me argument is the index of this peer in the peers array.
+ 
+Start(command) asks Raft to start the processing to append the command to the replicated log. Start() should return immediately, without waiting for the log appends to complete.
+
+The service expects your implementation to send an ApplyMsg for each newly committed log entry to the applyCh channel argument to Make()
+
+
+########pointers#########
+
+a node can be in follower state, candidate state or leader state
+
+with 2f+1 nodes, a node only needs f positive votes for majority, and it itself is in support of itself
+
+the process of consensus in raft is done by log replication
+
+the changes to the logs of the leader are sent to the followers through the AppendEntries/hearbeat messages
+
+the application is also called the state machine, so each raft server has a state machine (like a kv store, basically the application that we want to make fault tolerant)
+
+reset election timer when:
+1) AppendEntries() from the leader with the correct term is received
+2) GrantVote() is sent
+
+vote is granted towards a candidate if that candidates logs are not outdated wrt this node's log. So that 
+means that leaders elected are the ones with relatively up to date logs, and this is due to the manner
+in which votes are done
+
+the leader implies that: “ensure that indices x, y, z, are in your(follower) log”, but it does NOT imply that: “indices x, y, z are the only thing in your log”
+
+if the node has already voted before and it receives a RequestVote rpc with a higher term, then it 
+shld adopt this new higher term and then vote
+
