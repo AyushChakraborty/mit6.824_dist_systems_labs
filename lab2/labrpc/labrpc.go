@@ -51,7 +51,7 @@ package labrpc
 
 import (
 	"bytes"
-	"labgob"
+	"lab2/labgob"
 	"log"
 	"math/rand"
 	"reflect"

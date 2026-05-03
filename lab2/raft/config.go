@@ -9,7 +9,7 @@ package raft
 //
 
 import (
-	"labrpc"
+	"lab2/labrpc"
 	"log"
 	"math/rand"
 	"runtime"
